@@ -1,8 +1,8 @@
-name: ThienDinh Auto Update
+name: TamQuoc Auto Update
 on:
   schedule:
-    - cron: '*/20 * * * *'
-  workflow_dispatch:
+    - cron: '*/20 * * * *' # Tự động quét 20 phút một lần
+  workflow_dispatch:      # Nút bấm chạy tay cho Mạnh
   push:
     branches: [ main ]
 
@@ -10,13 +10,12 @@ jobs:
   update_task:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write     # Quyền cực quan trọng để ghi file
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
-          # Thêm dòng này để cấp quyền Token ngay từ lúc vào
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Python
@@ -24,29 +23,28 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install
+      - name: Install Libraries
         run: pip install requests
 
-      - name: Run Robot
+      - name: Run Robot Tam Quoc
         run: python get_link.py
 
-      - name: Push to Repo (Fix Exit 128)
+      - name: Push to GitHub (Fix Lỗi 128)
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Làm sạch Git trước khi push
           git add list.m3u
           
-          # Chỉ push nếu có thay đổi, tránh lỗi vặt
+          # Chỉ commit nếu có link mới, tránh chạy thừa
           if git diff --staged --quiet; then
-            echo "No changes to commit"
+            echo "Không có trận mới, bỏ qua commit."
             exit 0
           fi
           
-          git commit -m "Thiên Định Update: $(date)"
+          git commit -m "Tam Quốc TV Update: $(date)"
           
-          # Dùng Token để ép GitHub cho phép ghi đè file
+          # Dùng Token để ép GitHub cho phép ghi đè
           git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
           git push origin main
           
