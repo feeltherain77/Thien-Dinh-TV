@@ -1,69 +1,68 @@
 import requests
 import re
+import json
 from urllib.parse import urljoin
 
-# Header giả lập trình duyệt xịn để qua mặt Anti-bot
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-    'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
-    'Referer': 'https://sv2.thiendinh2.live/',
-}
-
+# Dùng User-Agent của Mobile để web nó nhả link m3u8 trực tiếp
+UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
 BASE_URL = 'https://sv2.thiendinh2.live/'
 
 def get_m3u():
     m3u_lines = []
+    headers = {'User-Agent': UA, 'Referer': BASE_URL}
+    
     try:
-        # 1. Truy cập trang chủ hốt link trận
-        s = requests.Session()
-        r_home = s.get(urljoin(BASE_URL, 'trang-chu'), headers=HEADERS, timeout=15).text
+        session = requests.Session()
+        # 1. Vào trang chủ lấy danh sách trận
+        r_home = session.get(urljoin(BASE_URL, 'trang-chu'), headers=headers, timeout=15).text
         
-        # Tìm tất cả link trực tiếp
+        # Tìm link các trận đấu
         matches = re.findall(r'href="([^"]*(?:truc-tiep|match|watch)/[^"]+)"', r_home)
-        matches = list(dict.fromkeys(matches))[::-1] # Lọc trùng và đảo ngược
+        matches = list(dict.fromkeys(matches))[::-1]
 
         for m_url in matches:
             full_u = urljoin(BASE_URL, m_url)
             try:
-                d = s.get(full_u, headers=HEADERS, timeout=10).text
-                # Quét link stream m3u8
-                streams = re.findall(r'(https?://[^\s"\'<>]+?\.m3u8[^\s"\'<>]*)', d)
+                # 2. Vào trang trận đấu
+                d = session.get(full_u, headers=headers, timeout=10).text
                 
+                # SĂN LINK M3U8 (Tìm cả trong script và iframe)
+                # Thiên định thường để link trong biến 'file' hoặc 'src'
+                streams = re.findall(r'["\']?(https?://[^\s"\'<>]+?\.m3u8[^\s"\'<>]*)["\']?', d)
+                
+                if not streams:
+                    # Nếu không thấy, tìm link iframe chứa player
+                    iframe = re.search(r'iframe.*?src="([^"]+)"', d)
+                    if iframe:
+                        d_if = session.get(urljoin(BASE_URL, iframe.group(1)), headers=headers).text
+                        streams = re.findall(r'["\']?(https?://[^\s"\'<>]+?\.m3u8[^\s"\'<>]*)["\']?', d_if)
+
                 if streams:
                     t_match = re.search(r'<title>(.*?)</title>', d)
                     raw_title = t_match.group(1) if t_match else "Live"
                     
-                    # DIỆT RÁC CACHEPBONGDA
+                    # LỌC RÁC
                     clean_name = re.sub(r'\[?CACHEPBONGDA\]?', '', raw_title, flags=re.I)
-                    clean_name = clean_name.split('|')[0].replace('Trực tiếp', '').split('-')[0].strip()
-                    # Xóa nốt mấy từ quảng cáo lặt vặt
-                    for trash in ["THIENDINH", "LIVE", "SV2", "VIP", "WEB"]:
+                    clean_name = clean_name.split('|')[0].replace('Trực tiếp', '').strip()
+                    for trash in ["THIENDINH", "LIVE", "SV2", "VIP"]:
                         clean_name = clean_name.replace(trash, "").strip()
 
-                    # SĂN TÊN BLV XỊN
+                    # BẮT BLV
                     blv_tag = ""
-                    # Tìm BLV trong nội dung trang (thường nằm sau chữ BLV:)
                     blv_find = re.search(r'BLV[:\s]+([\w\sàáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệđìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵ]+)', d, re.I)
                     if blv_find:
                         name = blv_find.group(1).strip().upper()
-                        if "CACHEP" not in name and 2 < len(name) < 15:
+                        if "CACHEP" not in name and len(name) < 15:
                             blv_tag = f"[{name}] "
-                    elif '|' in raw_title:
-                        # Nếu ko thấy trong body, lấy phần sau dấu | của title
-                        poten = raw_title.split('|')[-1].strip().upper()
-                        if "CACHEP" not in poten and len(poten) < 15:
-                            blv_tag = f"[{poten}] "
 
-                    for i, s_url in enumerate(streams):
-                        # Link sạch không có dấu \
+                    for i, s_url in enumerate(list(dict.fromkeys(streams))):
                         final_link = s_url.replace('\\', '')
                         display_name = f"{blv_tag}{clean_name} - Link {i+1}"
                         
-                        # Build nội dung m3u
                         line = f'#EXTINF:-1 tvg-logo="https://sv2.thiendinh2.live/uploads/logo.png" group-title="Thiên Định TV", {display_name}\n'
-                        line += f'#EXTVLCOPT:http-user-agent={HEADERS["User-Agent"]}\n'
-                        line += f'#EXTVLCOPT:http-referrer={full_u}\n'
+                        # Thêm KODIPROP để OTT Navigator hay TiviMate đều chạy được
+                        line += f'#KODIPROP:inputstream.adaptive.license_type=clearkey\n'
+                        line += f'#EXTHTTP:{{"User-Agent":"{UA}","Referer":"{full_u}"}}\n'
                         line += f'{final_link}'
                         m3u_lines.append(line)
             except: continue
@@ -73,7 +72,7 @@ def get_m3u():
             f.write("#EXTM3U\n" + "\n".join(m3u_lines))
             
     except Exception as e:
-        print(f"Lỗi rồi Mạnh ơi: {e}")
+        print(f"Lỗi: {e}")
 
 if __name__ == "__main__":
     get_m3u()
