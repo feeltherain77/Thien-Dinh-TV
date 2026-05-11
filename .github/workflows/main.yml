@@ -1,0 +1,43 @@
+name: ThienDinh Auto Update
+on:
+  schedule:
+    - cron: '*/20 * * * *' # Tự động cập nhật mỗi 20 phút
+  workflow_dispatch:      # Nút bấm chạy thủ công cho Mạnh
+  push:
+    branches: [ main ]    # Chạy khi Mạnh sửa code
+
+jobs:
+  update_task:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write     # Quyền cực quan trọng để robot ghi file
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Libraries
+        run: pip install requests
+
+      - name: Run Robot VIP
+        run: python get_link.py
+
+      - name: Push to Repo
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Lệnh dọn dẹp xung đột để robot chạy mượt
+          git add list.m3u
+          git pull origin main --rebase
+          
+          # Chỉ commit nếu có thay đổi link mới
+          git commit -m "Thiên Định Update: $(date)" || exit 0
+          git push origin main
+          
